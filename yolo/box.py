@@ -13,8 +13,8 @@ class Direction(Enum):
 
 
 class Box:
-    def __init__(self, tracker, box, timestamp, yolo):
-        self.time_created = time.time()
+    def __init__(self, tracker, box, timestamp):
+        self.time_created = timestamp
         self.directions = (Direction.NONE, Direction.NONE)
         self.movements = {}
         self.position = box
@@ -24,7 +24,8 @@ class Box:
         self.tracker = tracker
         self.is_tracker_on = True
         self.last_time_alive = timestamp
-        self.yolo = yolo
+        self.times = 0
+        self.start_positionOx = (2*box[0] + box[2])/2
 
         self.movements[Direction.NONE] = 0
         self.movements[Direction.LEFT] = 0
@@ -41,64 +42,64 @@ class Box:
     def update(self, frame_in, timestamp):
 
         frame_time = timestamp
-        if frame_time - self.last_time > 10:
+        if frame_time - self.time_created > 10:
             self.is_standing_in_queue = True
         (success, box) = self.tracker.update(frame_in)
-        frame_out = frame_in.copy()
         if success:
             self.is_tracker_on = True
-            (x, y, w, h) = [float(v) for v in box]
-            cv2.rectangle(frame_out, (x, y), (x + w, y + h), (0, 255, 0), 2)
             if not self.position:
                 self.position = box
                 self.last_time = timestamp
                 self.speed = dict.fromkeys(self.speed, 0)
             else:
+                (x, y, w, h) = [float(v) for v in box]
                 distanceOX = (x + x + w)/2 - (self.position[0] + self.position[0] + self.position[2])/2
                 distanceOY = (y + y + h)/2 - (self.position[1] + self.position[1] + self.position[3])/2
                 directionOX = Direction.RIGHT if distanceOX >= 0 else Direction.LEFT
                 directionOY = Direction.DOWN if distanceOY >= 0 else Direction.UP
                 directions = sorted(self.movements, key=self.movements.get)
-                self.directions = (directionOX, directionOY)
 
                 self.movements[directionOX] += abs(distanceOX)
                 self.movements[directionOY] += abs(distanceOY)
                 self.speed = dict.fromkeys(self.speed, 0)
-                self.speed[directionOX] = abs(distanceOX) / (frame_time - self.last_time)
-                self.speed[directionOY] = abs(distanceOY) / (frame_time - self.last_time)
+
+                self.speed[Direction.LEFT] = self.movements[Direction.LEFT] / (timestamp - self.time_created)
+                self.speed[Direction.RIGHT] = self.movements[Direction.RIGHT] / (timestamp - self.time_created)
+                self.speed[Direction.UP] = self.movements[Direction.UP] / (timestamp - self.time_created)
+                self.speed[Direction.DOWN] = self.movements[Direction.DOWN] / (timestamp - self.time_created)
+
+                speedsOx = [self.speed[Direction.LEFT], self.speed[Direction.RIGHT]]
+                speedsOy = [self.speed[Direction.UP], self.speed[Direction.DOWN]]
+                max_directionOx = Direction(speedsOx.index(max(speedsOx)) + 1)
+                max_directionOy = Direction(speedsOy.index(max(speedsOy)) + 3)
+                self.directions = (max_directionOx, max_directionOy)
+                #self.directions = (directionOX, directionOY)
+               # self.speed[directionOX] = abs(distanceOX) / (frame_time - self.last_time)
+                #self.speed[directionOY] = abs(distanceOY) / (frame_time - self.last_time)
 
                 self.position = box
                 self.last_time = timestamp
             self.last_time_alive = timestamp
-            return frame_out
+            return box
         else:
             self.is_tracker_on = False
-            time_elapsed = timestamp - self.last_time_alive
-            if time_elapsed > 1:
-                (x, y, w, h) = [float(v) for v in self.position]
-                eps = 10
-
-                (directionOX, directionOY) = self.directions
-                distanceOX = self.speed[directionOX] * time_elapsed
-                distanceOY = self.speed[directionOY] * time_elapsed
-
-                if directionOX == Direction.LEFT: distanceOX *= (-1)
-                if directionOY == Direction.UP: distanceOY *= (-1)
-
-                if self.is_standing_in_queue:
-                    distanceOX = 0
-                    distanceOY = 0
-
-                leftY = y + distanceOY - eps if y + distanceOY - eps >= 0 else 0
-                rigthY = y + h + distanceOY + eps if y + h + distanceOY + eps < frame_in.shape[0] else frame_in.shape[0]
-                leftX = x + distanceOX - eps if x + distanceOX - eps >= 0 else 0
-                rigthX = x + w + distanceOX + eps if x + w + distanceOX + eps < frame_in.shape[1] else frame_in.shape[1]
-                img = frame_in[leftY:rigthY, leftX:rigthX].copy()
-                human_boxes = self.yolo.get_human_boxes(frame_in, )
-                if not len(human_boxes):
-
-
             return None
 
     def area(self):
         return self.position[2] * self.position[3]
+
+    def set_tracker(self, new_tracker, closest_box, timestamp):
+
+        self.tracker = new_tracker
+        self.position = closest_box
+        #box.speed = dict.fromkeys(box.speed, 0)
+        self.last_time_alive = timestamp
+
+        (x, y, w, h) = [float(v) for v in closest_box]
+        distanceOX = (x + x + w) / 2 - (self.position[0] + self.position[0] + self.position[2]) / 2
+        distanceOY = (y + y + h) / 2 - (self.position[1] + self.position[1] + self.position[3]) / 2
+        directionOX = Direction.RIGHT if distanceOX >= 0 else Direction.LEFT
+        directionOY = Direction.DOWN if distanceOY >= 0 else Direction.UP
+
+        self.movements[directionOX] += abs(distanceOX)
+        self.movements[directionOY] += abs(distanceOY)
